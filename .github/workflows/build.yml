@@ -11,113 +11,56 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      # ── Step 1: Code checkout ──
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      # ── Step 2: Python setup ──
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
+      # ── Step 3: Java setup ──
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # पुराने broken caches हटाओ
-      - name: Clean old Buildozer files
+      # ── Step 4: Fix JAVA_HOME ──
+      - name: Fix JAVA_HOME path
+        run: |
+          JAVA_DIR=$(dirname $(dirname $(readlink -f $(which javac))))
+          echo "JAVA_HOME=$JAVA_DIR" >> $GITHUB_ENV
+          echo "$JAVA_DIR/bin" >> $GITHUB_PATH
+          echo "JAVA_HOME set to: $JAVA_DIR"
+          java -version
+          javac -version
+
+      # ── Step 5: Clean old cache ──
+      - name: Clean old buildozer cache
         run: |
           rm -rf ~/.buildozer
           rm -rf .buildozer
           rm -rf bin
 
-      - name: Install system packages
+      # ── Step 6: System dependencies ──
+      - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt install -y \
+          sudo apt-get update
+          sudo apt-get install -y \
             git zip unzip autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libncursesw5-dev \
             cmake libffi-dev libssl-dev python3-dev \
             build-essential libsqlite3-dev ccache \
-            libltdl-dev libbz2-dev liblzma-dev
+            libltdl-dev libbz2-dev liblzma-dev lld
 
+      # ── Step 7: Python packages ──
       - name: Install Python packages
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install Cython==0.29.37 buildozer==1.5.0
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install Cython==0.29.37
+          python -m pip install buildozer==1.5.0
 
-      - name: Prepare Android SDK for Buildozer
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> $GITHUB_ENV
-          echo "$JAVA_HOME_17_X64/bin" >> $GITHUB_PATH
-
-          SDK_ROOT=/usr/local/lib/android/sdk
-          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager | head -1)
-          AVDMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name avdmanager | head -1)
-
-          echo "Using SDK_ROOT=$SDK_ROOT"
-          echo "Using SDKMANAGER=$SDKMANAGER"
-
-          # Buildozer पुराना tools/bin path ढूंढता है
-          sudo mkdir -p "$SDK_ROOT/tools/bin"
-          sudo ln -sf "$SDKMANAGER" "$SDK_ROOT/tools/bin/sdkmanager"
-
-          if [ -n "$AVDMANAGER" ]; then
-            sudo ln -sf "$AVDMANAGER" "$SDK_ROOT/tools/bin/avdmanager"
-          fi
-
-          yes | "$SDKMANAGER" --licenses || true
-
-          "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2" \
-            "ndk;25.2.9519653"
-
-          echo "$SDK_ROOT/build-tools/33.0.2" >> $GITHUB_PATH
-          echo "$SDK_ROOT/platform-tools" >> $GITHUB_PATH
-
-          echo "Checking aidl..."
-          find "$SDK_ROOT" -name aidl -type f
-
-      - name: Build APK
-        run: |
-          buildozer -v android debug 2>&1 | tee build.log
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-          ANDROIDSDK: /usr/local/lib/android/sdk
-          ANDROIDNDK: /usr/local/lib/android/sdk/ndk/25.2.9519653
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          ANDROIDAPI: 33
-          ANDROIDMINAPI: 21
-          NDKAPI: 21
-          BUILDOZER_ALLOW_ORG_NAME_START: 1
-
-      - name: Show generated files
-        if: always()
-        run: |
-          echo "=== BIN FOLDER ==="
-          ls -lah bin || true
-          echo ""
-          echo "=== APK SEARCH ==="
-          find . -name "*.apk" -type f -exec ls -lh {} \; || true
-          echo ""
-          echo "=== LAST 60 LINES OF LOG ==="
-          tail -n 60 build.log || true
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Build-Log
-          path: build.log
-
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Secure-Vault-APK
-          path: bin/*.apk
-          if-no-files-found: warn
+      # 
