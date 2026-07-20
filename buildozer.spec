@@ -1,57 +1,38 @@
 [app]
 
-# ─────────────────────────────
-# App Basic Info
-# ─────────────────────────────
 title = Secure Vault
 package.name = securevault
 package.domain = com.offlineapps
 
-# ─────────────────────────────
-# Source Files
-# ─────────────────────────────
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,json,ttf,atlas,txt
+source.exclude_dirs = .buildozer,.git,bin,__pycache__,.github
 
-# ─────────────────────────────
-# Version
-# ─────────────────────────────
 version = 1.0
 
-# ─────────────────────────────
-# Requirements
-# ─────────────────────────────
-requirements = python3,kivy==2.3.0,kivymd==1.2.0,pillow,cryptography
+# ✅ Simple requirements - no extra dependencies
+requirements = python3,kivy
 
-# ─────────────────────────────
-# Display
-# ─────────────────────────────
 orientation = portrait
 fullscreen = 0
 
-# ─────────────────────────────
-# Icons & Splash
-# ─────────────────────────────
-icon.filename = %(source.dir)s/icon.png
-presplash.filename = %(source.dir)s/presplash.png
-presplash.color = #000000
-
-# ─────────────────────────────
-# Android Settings
-# ─────────────────────────────
+# ─── Android Settings ───
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
 android.ndk_api = 21
 android.archs = arm64-v8a
 
-# ─────────────────────────────
-# Android Permissions
-# App Locker के लिए जरूरी
-# ─────────────────────────────
-android.permissions = \
-    INTERNET, \
-    READ_EXTERNAL_STORAGE, \
-    WRITE_EXTERNAL_STORAGE, \
-    MANAGE_EXTERNAL_STORAGE, \
-    
+# ─── Permissions ───
+android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,VIBRATE
+
+# ─── SDK ───
+android.accept_sdk_license = True
+android.skip_update = True
+
+# ─── Build ───
+log_level = 2
+p4a.branch = develop
+
+[buildozer]
+warn_on_root = 1
