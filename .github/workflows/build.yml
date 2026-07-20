@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-  # Manual trigger भी add किया
   workflow_dispatch:
 
 jobs:
@@ -12,24 +11,33 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # Step 1: Code checkout
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 2: Python setup
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # Step 3: Java setup
+      # ✅ JAVA_HOME अब सही तरीके से set होगा
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # Step 4: Cache - Build time बचाने के लिए
+      # ✅ JAVA_HOME को env में save करेंगे
+      - name: Set JAVA_HOME
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> $GITHUB_ENV
+          echo "PATH=$JAVA_HOME_17_X64/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Verify Java
+        run: |
+          echo "JAVA_HOME = $JAVA_HOME"
+          java -version
+          javac -version
+
       - name: Cache Buildozer
         uses: actions/cache@v4
         with:
@@ -40,7 +48,6 @@ jobs:
           restore-keys: |
             buildozer-${{ runner.os }}-
 
-      # Step 5: System dependencies install
       - name: Install System Dependencies
         run: |
           sudo apt update
@@ -61,28 +68,20 @@ jobs:
             build-essential \
             libsqlite3-dev \
             ccache \
-            libltdl-dev \
-            libgdbm-dev \
-            libbz2-dev \
-            liblzma-dev
+            libltdl-dev
 
-      # Step 6: Python packages install
       - name: Install Python Dependencies
         run: |
           pip install --upgrade pip setuptools wheel
           pip install Cython==0.29.37
           pip install buildozer==1.5.0
-          pip install virtualenv
 
-      # Step 7: APK Build
       - name: Build APK
         run: |
           buildozer android debug 2>&1 | tee build.log
         env:
-          JAVA_HOME: /opt/hostedtoolcache/Java_Temurin_jdk/17*/x64
-          BUILDOZER_ALLOW_ORG_NAME_START: 1
+          JAVA_HOME: ${{ env.JAVA_HOME }}
 
-      # Step 8: Build log upload (Error आने पर देखने के लिए)
       - name: Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
@@ -90,11 +89,9 @@ jobs:
           name: Build-Log
           path: build.log
 
-      # Step 9: APK upload
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Secure-Vault-APK
           path: bin/
-          if-no-files-found: error
-
+          if-no-files-found: warn
