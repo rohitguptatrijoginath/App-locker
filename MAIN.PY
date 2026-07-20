@@ -1,1189 +1,637 @@
 import os
+import hashlib
+import string
+import random
 import json
+from datetime import datetime
+
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen, SlideTransition
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.widget import Widget
 from kivy.uix.popup import Popup
-from kivy.uix.image import Image
 from kivy.storage.jsonstore import JsonStore
 from kivy.core.window import Window
 from kivy.metrics import dp, sp
-from kivy.graphics import Color, RoundedRectangle, Rectangle, Line, Ellipse
-from kivy.graphics import Canvas
+from kivy.graphics import Color, RoundedRectangle, Line
 from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.utils import get_color_from_hex
-from kivy.properties import StringProperty, BooleanProperty, ListProperty
 from functools import partial
-import hashlib
-import string
-import random
-from datetime import datetime
 
-# ─────────────────────────────────────────
-# COLOR THEME (Professional Dark Theme)
-# ─────────────────────────────────────────
-COLORS = {
-    'bg_primary': get_color_from_hex('#0A0E27'),
-    'bg_secondary': get_color_from_hex('#141933'),
-    'bg_card': get_color_from_hex('#1A2040'),
-    'bg_card_hover': get_color_from_hex('#222B52'),
-    'accent_primary': get_color_from_hex('#6C63FF'),
-    'accent_secondary': get_color_from_hex('#5A52E0'),
-    'accent_gradient': get_color_from_hex('#8B83FF'),
-    'success': get_color_from_hex('#00D68F'),
-    'danger': get_color_from_hex('#FF3D71'),
-    'warning': get_color_from_hex('#FFAA00'),
-    'text_primary': get_color_from_hex('#FFFFFF'),
-    'text_secondary': get_color_from_hex('#8F9BB3'),
-    'text_hint': get_color_from_hex('#5A6380'),
-    'input_bg': get_color_from_hex('#1E2548'),
-    'input_border': get_color_from_hex('#2E3663'),
-    'divider': get_color_from_hex('#252D50'),
-    'overlay': (0, 0, 0, 0.7),
-    'transparent': (0, 0, 0, 0),
+
+# ═══════════════════════════════════════
+# COLORS
+# ═══════════════════════════════════════
+C = {
+    'bg':         get_color_from_hex('#0A0E27'),
+    'card':       get_color_from_hex('#1A2040'),
+    'accent':     get_color_from_hex('#6C63FF'),
+    'accent2':    get_color_from_hex('#5A52E0'),
+    'green':      get_color_from_hex('#00D68F'),
+    'red':        get_color_from_hex('#FF3D71'),
+    'white':      get_color_from_hex('#FFFFFF'),
+    'grey':       get_color_from_hex('#8F9BB3'),
+    'dark_grey':  get_color_from_hex('#5A6380'),
+    'input_bg':   get_color_from_hex('#1E2548'),
+    'border':     get_color_from_hex('#2E3663'),
 }
 
 
-# ─────────────────────────────────────────
+# ═══════════════════════════════════════
 # CUSTOM WIDGETS
-# ─────────────────────────────────────────
-class RoundedBox(BoxLayout):
-    """Rounded corner box with background color"""
-    def __init__(self, bg_color=None, radius=None, **kwargs):
-        super().__init__(**kwargs)
-        self.bg_color = bg_color or COLORS['bg_card']
-        self.radius_val = radius or [dp(16)]
-        self.bind(pos=self._update, size=self._update)
-        Clock.schedule_once(lambda dt: self._update())
+# ═══════════════════════════════════════
+class RBox(BoxLayout):
+    def __init__(self, bg=None, r=16, **kw):
+        super().__init__(**kw)
+        self._bg = bg or C['card']
+        self._r = r
+        self.bind(pos=self._draw, size=self._draw)
+        Clock.schedule_once(lambda dt: self._draw())
 
-    def _update(self, *args):
+    def _draw(self, *a):
         self.canvas.before.clear()
         with self.canvas.before:
-            Color(*self.bg_color)
-            RoundedRectangle(
-                pos=self.pos,
-                size=self.size,
-                radius=self.radius_val
-            )
+            Color(*self._bg)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(self._r)])
 
 
-class StyledTextInput(TextInput):
-    """Professional styled text input"""
-    def __init__(self, icon_text="", **kwargs):
-        super().__init__(**kwargs)
+class SInput(TextInput):
+    def __init__(self, **kw):
+        super().__init__(**kw)
         self.background_color = (0, 0, 0, 0)
-        self.foreground_color = COLORS['text_primary']
-        self.cursor_color = COLORS['accent_primary']
-        self.hint_text_color = COLORS['text_hint']
+        self.foreground_color = C['white']
+        self.cursor_color = C['accent']
+        self.hint_text_color = C['dark_grey']
         self.font_size = sp(16)
-        self.padding = [dp(20), dp(16), dp(20), dp(16)]
+        self.padding = [dp(18), dp(14), dp(18), dp(14)]
         self.multiline = False
-        self.icon_text = icon_text
-        self.bind(pos=self._draw_bg, size=self._draw_bg, focus=self._on_focus)
-        Clock.schedule_once(lambda dt: self._draw_bg())
+        self.bind(pos=self._draw, size=self._draw, focus=self._draw)
+        Clock.schedule_once(lambda dt: self._draw())
 
-    def _draw_bg(self, *args):
+    def _draw(self, *a):
         self.canvas.before.clear()
-        border_color = COLORS['accent_primary'] if self.focus else COLORS['input_border']
+        bc = C['accent'] if self.focus else C['border']
         with self.canvas.before:
-            Color(*COLORS['input_bg'])
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
-            Color(*border_color)
-            Line(
-                rounded_rectangle=(
-                    self.x, self.y,
-                    self.width, self.height,
-                    dp(14)
-                ),
-                width=dp(1.5) if self.focus else dp(1)
-            )
-
-    def _on_focus(self, *args):
-        self._draw_bg()
+            Color(*C['input_bg'])
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
+            Color(*bc)
+            Line(rounded_rectangle=(self.x, self.y, self.width, self.height, dp(12)),
+                 width=dp(1.5) if self.focus else dp(1))
 
 
-class PrimaryButton(Button):
-    """Gradient-style primary button"""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+class PBtn(Button):
+    def __init__(self, bg=None, **kw):
+        super().__init__(**kw)
+        self._bg = bg or C['accent']
         self.background_color = (0, 0, 0, 0)
         self.background_normal = ''
         self.background_down = ''
-        self.color = COLORS['text_primary']
-        self.font_size = sp(17)
+        self.color = C['white']
+        self.font_size = sp(16)
         self.bold = True
         self.size_hint_y = None
-        self.height = dp(56)
+        self.height = dp(52)
         self.bind(pos=self._draw, size=self._draw, state=self._draw)
         Clock.schedule_once(lambda dt: self._draw())
 
-    def _draw(self, *args):
+    def _draw(self, *a):
         self.canvas.before.clear()
-        color = COLORS['accent_secondary'] if self.state == 'down' else COLORS['accent_primary']
+        c = C['accent2'] if self.state == 'down' else self._bg
         with self.canvas.before:
-            Color(*color)
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
+            Color(*c)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
 
 
-class SecondaryButton(Button):
-    """Outlined secondary button"""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+class OBtn(Button):
+    def __init__(self, **kw):
+        super().__init__(**kw)
         self.background_color = (0, 0, 0, 0)
         self.background_normal = ''
         self.background_down = ''
-        self.color = COLORS['accent_primary']
+        self.color = C['accent']
         self.font_size = sp(15)
         self.bold = True
         self.size_hint_y = None
         self.height = dp(48)
-        self.bind(pos=self._draw, size=self._draw, state=self._draw)
-        Clock.schedule_once(lambda dt: self._draw())
-
-    def _draw(self, *args):
-        self.canvas.before.clear()
-        with self.canvas.before:
-            if self.state == 'down':
-                Color(*COLORS['accent_primary'][:3], 0.15)
-            else:
-                Color(*COLORS['bg_card'])
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
-            Color(*COLORS['accent_primary'])
-            Line(
-                rounded_rectangle=(
-                    self.x, self.y,
-                    self.width, self.height,
-                    dp(12)
-                ),
-                width=dp(1.5)
-            )
-
-
-class DangerButton(Button):
-    """Red danger button"""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.background_color = (0, 0, 0, 0)
-        self.background_normal = ''
-        self.background_down = ''
-        self.color = COLORS['text_primary']
-        self.font_size = sp(14)
-        self.bold = True
-        self.size_hint_y = None
-        self.height = dp(44)
         self.bind(pos=self._draw, size=self._draw)
         Clock.schedule_once(lambda dt: self._draw())
 
-    def _draw(self, *args):
+    def _draw(self, *a):
         self.canvas.before.clear()
         with self.canvas.before:
-            Color(*COLORS['danger'])
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(10)])
+            Color(*C['card'])
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
+            Color(*C['accent'])
+            Line(rounded_rectangle=(self.x, self.y, self.width, self.height, dp(12)),
+                 width=dp(1.5))
 
 
-class PasswordCard(RoundedBox):
-    """Professional password entry card"""
-    def __init__(self, app_name, username, password, timestamp, on_delete, on_copy, **kwargs):
-        super().__init__(
-            bg_color=COLORS['bg_card'],
-            radius=[dp(16)],
-            orientation='vertical',
-            size_hint_y=None,
-            height=dp(140),
-            padding=[dp(18), dp(14)],
-            spacing=dp(6),
-            **kwargs
-        )
-        self.app_name = app_name
-        self.show_password = False
-        self.password = password
-
-        # Top row - App name and delete
-        top_row = BoxLayout(size_hint_y=None, height=dp(32))
-
-        # App icon circle
-        icon_box = BoxLayout(size_hint_x=None, width=dp(32))
-        icon_label = Label(
-            text=app_name[0].upper() if app_name else "?",
-            font_size=sp(16),
-            bold=True,
-            color=COLORS['text_primary']
-        )
-        icon_box.add_widget(icon_label)
-
-        app_label = Label(
-            text=f"  {app_name}",
-            font_size=sp(18),
-            bold=True,
-            color=COLORS['text_primary'],
-            halign='left',
-            text_size=(dp(200), None)
-        )
-
-        delete_btn = Button(
-            text="[color=#FF3D71]\u2716[/color]",
-            markup=True,
-            size_hint_x=None,
-            width=dp(40),
-            background_color=(0, 0, 0, 0),
-            background_normal='',
-            font_size=sp(18)
-        )
-        delete_btn.bind(on_press=lambda x: on_delete(app_name))
-
-        top_row.add_widget(icon_box)
-        top_row.add_widget(app_label)
-        top_row.add_widget(delete_btn)
-
-        # Username row
-        user_row = BoxLayout(size_hint_y=None, height=dp(24))
-        user_label = Label(
-            text=f"  \U0001F464  {username}",
-            font_size=sp(14),
-            color=COLORS['text_secondary'],
-            halign='left',
-            text_size=(dp(300), None)
-        )
-        user_row.add_widget(user_label)
-
-        # Password row
-        pass_row = BoxLayout(size_hint_y=None, height=dp(28))
-        self.pass_label = Label(
-            text=f"  \U0001F512  {'•' * min(len(password), 12)}",
-            font_size=sp(14),
-            color=COLORS['text_secondary'],
-            halign='left',
-            text_size=(dp(200), None)
-        )
-
-        toggle_btn = Button(
-            text="\U0001F441",
-            size_hint_x=None,
-            width=dp(40),
-            background_color=(0, 0, 0, 0),
-            background_normal='',
-            font_size=sp(16)
-        )
-        toggle_btn.bind(on_press=self.toggle_password)
-
-        copy_btn = Button(
-            text="\U0001F4CB Copy",
-            size_hint_x=None,
-            width=dp(80),
-            background_color=(0, 0, 0, 0),
-            background_normal='',
-            font_size=sp(13),
-            color=COLORS['accent_primary']
-        )
-        copy_btn.bind(on_press=lambda x: on_copy(password))
-
-        pass_row.add_widget(self.pass_label)
-        pass_row.add_widget(toggle_btn)
-        pass_row.add_widget(copy_btn)
-
-        # Timestamp
-        time_label = Label(
-            text=f"  {timestamp}",
-            font_size=sp(11),
-            color=COLORS['text_hint'],
-            halign='left',
-            size_hint_y=None,
-            height=dp(18),
-            text_size=(dp(300), None)
-        )
-
-        self.add_widget(top_row)
-        self.add_widget(user_row)
-        self.add_widget(pass_row)
-        self.add_widget(time_label)
-
-    def toggle_password(self, *args):
-        self.show_password = not self.show_password
-        if self.show_password:
-            self.pass_label.text = f"  \U0001F513  {self.password}"
-        else:
-            self.pass_label.text = f"  \U0001F512  {'•' * min(len(self.password), 12)}"
-
-
-# ─────────────────────────────────────────
-# SCREENS
-# ─────────────────────────────────────────
+# ═══════════════════════════════════════
+# SPLASH SCREEN
+# ═══════════════════════════════════════
 class SplashScreen(Screen):
-    """Professional Splash Screen"""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        layout = FloatLayout()
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.layout = FloatLayout()
 
-        with layout.canvas.before:
-            Color(*COLORS['bg_primary'])
-            self.bg_rect = Rectangle(pos=layout.pos, size=Window.size)
-        layout.bind(size=self._update_bg, pos=self._update_bg)
+        with self.layout.canvas.before:
+            Color(*C['bg'])
+            self._rect = Rectangle(pos=(0, 0), size=Window.size)
 
-        # Logo area
-        logo_box = BoxLayout(
-            orientation='vertical',
-            size_hint=(0.6, 0.3),
-            pos_hint={'center_x': 0.5, 'center_y': 0.55}
+        from kivy.graphics import Rectangle
+        with self.layout.canvas.before:
+            Color(*C['bg'])
+            self._rect = Rectangle(pos=(0, 0), size=Window.size)
+        self.layout.bind(size=lambda *a: setattr(self._rect, 'size', Window.size))
+
+        box = BoxLayout(orientation='vertical',
+                        size_hint=(0.7, 0.35),
+                        pos_hint={'center_x': 0.5, 'center_y': 0.55},
+                        spacing=dp(8))
+
+        box.add_widget(Label(text='\U0001F6E1', font_size=sp(64)))
+        box.add_widget(Label(text='Secure Vault', font_size=sp(30),
+                             bold=True, color=C['white']))
+        box.add_widget(Label(text='Your passwords, protected.',
+                             font_size=sp(14), color=C['grey']))
+
+        self.layout.add_widget(box)
+        self.layout.add_widget(
+            Label(text='v1.0', font_size=sp(11), color=C['dark_grey'],
+                  size_hint=(1, 0.05), pos_hint={'center_x': 0.5, 'y': 0.03})
         )
-
-        shield_label = Label(
-            text="\U0001F6E1",
-            font_size=sp(72),
-        )
-
-        title = Label(
-            text="Secure Vault",
-            font_size=sp(32),
-            bold=True,
-            color=COLORS['text_primary']
-        )
-
-        subtitle = Label(
-            text="Your passwords, protected.",
-            font_size=sp(14),
-            color=COLORS['text_secondary']
-        )
-
-        logo_box.add_widget(shield_label)
-        logo_box.add_widget(title)
-        logo_box.add_widget(subtitle)
-
-        # Loading dots
-        self.loading_label = Label(
-            text="● ● ●",
-            font_size=sp(24),
-            color=COLORS['accent_primary'],
-            size_hint=(1, 0.1),
-            pos_hint={'center_x': 0.5, 'y': 0.15}
-        )
-
-        # Version
-        version_label = Label(
-            text="v1.0 | Offline & Encrypted",
-            font_size=sp(11),
-            color=COLORS['text_hint'],
-            size_hint=(1, 0.05),
-            pos_hint={'center_x': 0.5, 'y': 0.05}
-        )
-
-        layout.add_widget(logo_box)
-        layout.add_widget(self.loading_label)
-        layout.add_widget(version_label)
-        self.add_widget(layout)
-
-    def _update_bg(self, *args):
-        self.bg_rect.size = Window.size
+        self.add_widget(self.layout)
 
     def on_enter(self):
-        Clock.schedule_once(self.go_to_pin, 2.5)
-
-    def go_to_pin(self, dt):
-        self.manager.transition = SlideTransition(direction='left')
-        self.manager.current = 'pin'
+        Clock.schedule_once(lambda dt: setattr(self.manager, 'current', 'pin'), 2)
 
 
+# ═══════════════════════════════════════
+# PIN SCREEN
+# ═══════════════════════════════════════
 class PinScreen(Screen):
-    """Professional PIN Screen"""
-    def __init__(self, store, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, store, **kw):
+        super().__init__(**kw)
         self.store = store
-        self.entered_pin = ""
-        self.is_setup = not store.exists("pin")
+        self.pin = ""
+        self.is_new = not store.exists("pin")
 
-        layout = FloatLayout()
-        with layout.canvas.before:
-            Color(*COLORS['bg_primary'])
-            self.bg_rect = Rectangle(pos=layout.pos, size=Window.size)
-        layout.bind(size=self._update_bg, pos=self._update_bg)
+        root = FloatLayout()
+        with root.canvas.before:
+            Color(*C['bg'])
+            self._r = Rectangle(pos=(0, 0), size=Window.size)
 
-        # Content
-        content = BoxLayout(
-            orientation='vertical',
-            size_hint=(0.85, 0.9),
-            pos_hint={'center_x': 0.5, 'center_y': 0.5},
-            spacing=dp(10)
-        )
+        from kivy.graphics import Rectangle
+        with root.canvas.before:
+            Color(*C['bg'])
+            self._r = Rectangle(pos=(0, 0), size=Window.size)
+        root.bind(size=lambda *a: setattr(self._r, 'size', Window.size))
 
-        # Top spacing
-        content.add_widget(Widget(size_hint_y=0.08))
+        content = BoxLayout(orientation='vertical',
+                            size_hint=(0.85, 0.92),
+                            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+                            spacing=dp(8))
 
-        # Shield icon
-        shield = Label(
-            text="\U0001F512",
-            font_size=sp(56),
-            size_hint_y=0.12
-        )
+        content.add_widget(Widget(size_hint_y=0.06))
+        content.add_widget(Label(text='\U0001F512', font_size=sp(52), size_hint_y=0.1))
 
-        # Title
-        self.title_label = Label(
-            text="Create PIN" if self.is_setup else "Enter PIN",
-            font_size=sp(26),
-            bold=True,
-            color=COLORS['text_primary'],
-            size_hint_y=0.07
-        )
+        self.title_l = Label(
+            text='Create PIN' if self.is_new else 'Enter PIN',
+            font_size=sp(24), bold=True, color=C['white'], size_hint_y=0.06)
 
-        self.subtitle_label = Label(
-            text="Set a 4-digit PIN to secure your vault" if self.is_setup
-            else "Enter your PIN to unlock",
-            font_size=sp(13),
-            color=COLORS['text_secondary'],
-            size_hint_y=0.05
-        )
+        self.sub_l = Label(
+            text='Set a 4-digit PIN' if self.is_new else 'Enter your PIN to unlock',
+            font_size=sp(13), color=C['grey'], size_hint_y=0.04)
 
-        # PIN dots
-        self.dots_box = BoxLayout(
-            size_hint=(0.5, 0.06),
-            pos_hint={'center_x': 0.5},
-            spacing=dp(20)
-        )
+        # Dots
+        self.dots_box = BoxLayout(size_hint=(0.4, 0.05),
+                                  pos_hint={'center_x': 0.5}, spacing=dp(16))
         self.dots = []
-        for i in range(4):
-            dot = Label(
-                text="○",
-                font_size=sp(28),
-                color=COLORS['text_hint']
-            )
-            self.dots.append(dot)
-            self.dots_box.add_widget(dot)
+        for _ in range(4):
+            d = Label(text='\u25CB', font_size=sp(26), color=C['dark_grey'])
+            self.dots.append(d)
+            self.dots_box.add_widget(d)
 
-        # Error label
-        self.error_label = Label(
-            text="",
-            font_size=sp(13),
-            color=COLORS['danger'],
-            size_hint_y=0.04
-        )
+        self.err = Label(text='', font_size=sp(13), color=C['red'], size_hint_y=0.04)
 
-        content.add_widget(shield)
-        content.add_widget(self.title_label)
-        content.add_widget(self.subtitle_label)
+        content.add_widget(self.title_l)
+        content.add_widget(self.sub_l)
         content.add_widget(Widget(size_hint_y=0.02))
         content.add_widget(self.dots_box)
-        content.add_widget(self.error_label)
+        content.add_widget(self.err)
         content.add_widget(Widget(size_hint_y=0.02))
 
         # Numpad
-        numpad = GridLayout(
-            cols=3,
-            size_hint=(0.85, 0.45),
-            pos_hint={'center_x': 0.5},
-            spacing=dp(12)
-        )
+        pad = GridLayout(cols=3, size_hint=(0.82, 0.45),
+                         pos_hint={'center_x': 0.5}, spacing=dp(10))
 
-        buttons = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '\u232B']
-        for btn_text in buttons:
-            if btn_text == '':
-                numpad.add_widget(Widget())
+        for t in ['1','2','3','4','5','6','7','8','9','','0','\u232B']:
+            if t == '':
+                pad.add_widget(Widget())
             else:
-                btn = Button(
-                    text=btn_text,
-                    font_size=sp(26) if btn_text != '\u232B' else sp(22),
-                    background_color=(0, 0, 0, 0),
-                    background_normal='',
-                    color=COLORS['text_primary'],
-                    bold=True
-                )
-                btn.bind(pos=self._draw_numpad_btn, size=self._draw_numpad_btn)
-                Clock.schedule_once(partial(self._draw_numpad_btn_init, btn), 0.1)
-                if btn_text == '\u232B':
-                    btn.bind(on_press=self.backspace)
+                b = Button(text=t, font_size=sp(24), bold=True,
+                           background_color=(0,0,0,0), background_normal='',
+                           color=C['white'])
+                b.bind(pos=self._draw_pad, size=self._draw_pad)
+                Clock.schedule_once(partial(self._init_pad, b), 0.1)
+                if t == '\u232B':
+                    b.bind(on_press=self._back)
                 else:
-                    btn.bind(on_press=self.on_numpad_press)
-                numpad.add_widget(btn)
+                    b.bind(on_press=self._press)
+                pad.add_widget(b)
 
-        content.add_widget(numpad)
-        layout.add_widget(content)
-        self.add_widget(layout)
+        content.add_widget(pad)
+        root.add_widget(content)
+        self.add_widget(root)
 
-    def _update_bg(self, *args):
-        self.bg_rect.size = Window.size
+    def on_enter(self):
+        self.pin = ""
+        self.is_new = not self.store.exists("pin")
+        self.title_l.text = 'Create PIN' if self.is_new else 'Enter PIN'
+        self.sub_l.text = 'Set a 4-digit PIN' if self.is_new else 'Enter your PIN to unlock'
+        self.err.text = ''
+        self._upd_dots()
 
-    def _draw_numpad_btn_init(self, btn, dt):
-        self._draw_numpad_btn(btn)
+    def _init_pad(self, btn, dt):
+        self._draw_pad(btn)
 
-    def _draw_numpad_btn(self, btn, *args):
+    def _draw_pad(self, btn, *a):
         btn.canvas.before.clear()
         with btn.canvas.before:
-            Color(*COLORS['bg_card'])
-            RoundedRectangle(pos=btn.pos, size=btn.size, radius=[dp(50)])
+            Color(*C['card'])
+            RoundedRectangle(pos=btn.pos, size=btn.size, radius=[dp(40)])
 
-    def on_numpad_press(self, instance):
-        if len(self.entered_pin) < 4:
-            self.entered_pin += instance.text
-            self.update_dots()
+    def _press(self, inst):
+        if len(self.pin) < 4:
+            self.pin += inst.text
+            self._upd_dots()
+            if len(self.pin) == 4:
+                Clock.schedule_once(self._verify, 0.2)
 
-            if len(self.entered_pin) == 4:
-                Clock.schedule_once(self.verify, 0.2)
+    def _back(self, *a):
+        if self.pin:
+            self.pin = self.pin[:-1]
+            self._upd_dots()
+            self.err.text = ''
 
-    def backspace(self, instance):
-        if self.entered_pin:
-            self.entered_pin = self.entered_pin[:-1]
-            self.update_dots()
-            self.error_label.text = ""
-
-    def update_dots(self):
+    def _upd_dots(self):
         for i in range(4):
-            if i < len(self.entered_pin):
-                self.dots[i].text = "●"
-                self.dots[i].color = COLORS['accent_primary']
+            if i < len(self.pin):
+                self.dots[i].text = '\u25CF'
+                self.dots[i].color = C['accent']
             else:
-                self.dots[i].text = "○"
-                self.dots[i].color = COLORS['text_hint']
+                self.dots[i].text = '\u25CB'
+                self.dots[i].color = C['dark_grey']
 
-    def verify(self, dt):
-        pin = self.entered_pin
-
-        if self.is_setup:
-            hashed = hashlib.sha256(pin.encode()).hexdigest()
-            self.store.put("pin", value=hashed)
+    def _verify(self, dt):
+        p = self.pin
+        if self.is_new:
+            h = hashlib.sha256(p.encode()).hexdigest()
+            self.store.put("pin", value=h)
             self.manager.transition = SlideTransition(direction='left')
             self.manager.current = 'main'
         else:
-            stored_hash = self.store.get("pin")["value"]
-            if hashlib.sha256(pin.encode()).hexdigest() == stored_hash:
+            stored = self.store.get("pin")["value"]
+            if hashlib.sha256(p.encode()).hexdigest() == stored:
                 self.manager.transition = SlideTransition(direction='left')
                 self.manager.current = 'main'
             else:
-                self.error_label.text = "Wrong PIN. Try again."
-                self.entered_pin = ""
-                self.update_dots()
-                self.shake_dots()
-
-    def shake_dots(self):
-        original_x = self.dots_box.x
-        anim = (
-            Animation(x=original_x - dp(10), duration=0.05) +
-            Animation(x=original_x + dp(10), duration=0.05) +
-            Animation(x=original_x - dp(8), duration=0.05) +
-            Animation(x=original_x + dp(8), duration=0.05) +
-            Animation(x=original_x, duration=0.05)
-        )
-        anim.start(self.dots_box)
+                self.err.text = 'Wrong PIN. Try again.'
+                self.pin = ""
+                self._upd_dots()
+                # Shake animation
+                ox = self.dots_box.x
+                anim = (Animation(x=ox - dp(10), d=0.05) +
+                        Animation(x=ox + dp(10), d=0.05) +
+                        Animation(x=ox, d=0.05))
+                anim.start(self.dots_box)
 
 
+# ═══════════════════════════════════════
+# MAIN SCREEN
+# ═══════════════════════════════════════
 class MainScreen(Screen):
-    """Main Password Manager Screen"""
-    def __init__(self, store, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, store, **kw):
+        super().__init__(**kw)
         self.store = store
 
-        layout = FloatLayout()
-        with layout.canvas.before:
-            Color(*COLORS['bg_primary'])
-            self.bg_rect = Rectangle(pos=layout.pos, size=Window.size)
-        layout.bind(size=self._update_bg, pos=self._update_bg)
+        root = FloatLayout()
+        with root.canvas.before:
+            Color(*C['bg'])
+            self._r = Rectangle(pos=(0, 0), size=Window.size)
 
-        content = BoxLayout(
-            orientation='vertical',
-            size_hint=(0.92, 0.96),
-            pos_hint={'center_x': 0.5, 'center_y': 0.5},
-            spacing=dp(12)
-        )
+        from kivy.graphics import Rectangle
+        with root.canvas.before:
+            Color(*C['bg'])
+            self._r = Rectangle(pos=(0, 0), size=Window.size)
+        root.bind(size=lambda *a: setattr(self._r, 'size', Window.size))
 
-        # ── Header ──
-        header = BoxLayout(size_hint_y=None, height=dp(56))
+        content = BoxLayout(orientation='vertical',
+                            size_hint=(0.92, 0.96),
+                            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+                            spacing=dp(10))
 
-        title_box = BoxLayout(orientation='vertical')
-        header_title = Label(
-            text="\U0001F6E1  Secure Vault",
-            font_size=sp(22),
-            bold=True,
-            color=COLORS['text_primary'],
-            halign='left',
-            text_size=(dp(250), None)
-        )
-        header_sub = Label(
-            text="    Your passwords are safe",
-            font_size=sp(12),
-            color=COLORS['text_secondary'],
-            halign='left',
-            text_size=(dp(250), None)
-        )
-        title_box.add_widget(header_title)
-        title_box.add_widget(header_sub)
+        # Header
+        hdr = BoxLayout(size_hint_y=None, height=dp(50))
+        hdr.add_widget(Label(text='\U0001F6E1  Secure Vault', font_size=sp(22),
+                             bold=True, color=C['white'], halign='left',
+                             text_size=(dp(250), None)))
 
-        # Settings button
-        settings_btn = Button(
-            text="\u2699",
-            size_hint_x=None,
-            width=dp(48),
-            background_color=(0, 0, 0, 0),
-            background_normal='',
-            font_size=sp(24),
-            color=COLORS['text_secondary']
-        )
-        settings_btn.bind(on_press=self.show_settings_popup)
+        lock_btn = Button(text='\U0001F512', size_hint_x=None, width=dp(48),
+                          background_color=(0,0,0,0), background_normal='',
+                          font_size=sp(22), color=C['grey'])
+        lock_btn.bind(on_press=self._lock)
+        hdr.add_widget(lock_btn)
 
-        header.add_widget(title_box)
-        header.add_widget(settings_btn)
+        # Stats
+        self.stats = RBox(bg=C['card'], r=14, size_hint_y=None, height=dp(55),
+                          padding=[dp(20), dp(8)], spacing=dp(10))
+        self.total_l = Label(text='0\nTotal', font_size=sp(13),
+                             color=C['white'], halign='center', markup=True)
+        self.show_l = Label(text='0\nShowing', font_size=sp(13),
+                            color=C['accent'], halign='center', markup=True)
+        self.stats.add_widget(self.total_l)
+        self.stats.add_widget(self.show_l)
 
-        # ── Stats Bar ──
-        self.stats_bar = RoundedBox(
-            bg_color=COLORS['bg_card'],
-            radius=[dp(14)],
-            size_hint_y=None,
-            height=dp(60),
-            padding=[dp(20), dp(10)],
-            spacing=dp(10)
-        )
+        # Add button
+        add_btn = PBtn(text='\u2795  Add New Password')
+        add_btn.bind(on_press=self._show_add)
 
-        self.total_label = Label(
-            text="0\nTotal",
-            font_size=sp(13),
-            color=COLORS['text_primary'],
-            halign='center',
-            markup=True
-        )
-        self.recent_label = Label(
-            text="0\nRecent",
-            font_size=sp(13),
-            color=COLORS['accent_primary'],
-            halign='center',
-            markup=True
-        )
+        # Search
+        self.search = SInput(hint_text='\U0001F50D  Search...')
+        self.search.size_hint_y = None
+        self.search.height = dp(48)
+        self.search.bind(text=self._on_search)
 
-        self.stats_bar.add_widget(self.total_label)
-        self.stats_bar.add_widget(self.recent_label)
+        # List
+        self.list_box = GridLayout(cols=1, size_hint_y=None,
+                                   spacing=dp(10), padding=[0, dp(6)])
+        self.list_box.bind(minimum_height=self.list_box.setter('height'))
+        scroll = ScrollView(do_scroll_x=False, bar_width=dp(2),
+                            bar_color=C['accent'])
+        scroll.add_widget(self.list_box)
 
-        # ── Add Button ──
-        add_btn = PrimaryButton(text="\u2795  Add New Password")
-        add_btn.bind(on_press=self.show_add_popup)
-
-        # ── Search ──
-        self.search_input = StyledTextInput(hint_text="\U0001F50D  Search passwords...")
-        self.search_input.size_hint_y = None
-        self.search_input.height = dp(50)
-        self.search_input.bind(text=self.on_search)
-
-        # ── Password List ──
-        self.list_layout = GridLayout(
-            cols=1,
-            size_hint_y=None,
-            spacing=dp(12),
-            padding=[0, dp(8)]
-        )
-        self.list_layout.bind(minimum_height=self.list_layout.setter('height'))
-
-        scroll = ScrollView(
-            do_scroll_x=False,
-            bar_width=dp(3),
-            bar_color=COLORS['accent_primary']
-        )
-        scroll.add_widget(self.list_layout)
-
-        # ── Empty State ──
-        self.empty_label = Label(
-            text="\U0001F4AD\n\nNo passwords saved yet\nTap + to add your first password",
-            font_size=sp(15),
-            color=COLORS['text_hint'],
-            halign='center',
-            valign='middle',
-            markup=True
-        )
-
-        # Assemble
-        content.add_widget(header)
-        content.add_widget(self.stats_bar)
+        content.add_widget(hdr)
+        content.add_widget(self.stats)
         content.add_widget(add_btn)
-        content.add_widget(self.search_input)
+        content.add_widget(self.search)
         content.add_widget(scroll)
 
-        layout.add_widget(content)
-        self.add_widget(layout)
-
-    def _update_bg(self, *args):
-        self.bg_rect.size = Window.size
+        root.add_widget(content)
+        self.add_widget(root)
 
     def on_enter(self):
-        self.load_passwords()
+        self._load()
 
-    def on_search(self, instance, value):
-        self.load_passwords(search=value.strip().lower())
+    def _on_search(self, inst, val):
+        self._load(val.strip().lower())
 
-    def load_passwords(self, search=""):
-        self.list_layout.clear_widgets()
-        count = 0
-
+    def _load(self, search=""):
+        self.list_box.clear_widgets()
         keys = [k for k in self.store.keys() if k != "pin"]
-
         if search:
             keys = [k for k in keys if search in k.lower()]
 
-        for key in sorted(keys):
-            data = self.store.get(key)
-            timestamp = data.get('timestamp', 'Unknown date')
-
-            card = PasswordCard(
-                app_name=key,
-                username=data.get('username', ''),
-                password=data.get('password', ''),
-                timestamp=timestamp,
-                on_delete=self.confirm_delete,
-                on_copy=self.copy_to_clipboard
-            )
-            self.list_layout.add_widget(card)
-            count += 1
-
-        # Update stats
         total = len([k for k in self.store.keys() if k != "pin"])
-        self.total_label.text = f"[b]{total}[/b]\nTotal"
-        self.total_label.markup = True
-        self.recent_label.text = f"[b]{min(count, total)}[/b]\nShowing"
-        self.recent_label.markup = True
+        self.total_l.text = f'[b]{total}[/b]\nTotal'
+        self.show_l.text = f'[b]{len(keys)}[/b]\nShowing'
 
-        # Empty state
-        if count == 0:
-            self.list_layout.add_widget(
-                Label(
-                    text="\U0001F4AD\n\nNo passwords found",
-                    font_size=sp(15),
-                    color=COLORS['text_hint'],
-                    halign='center',
-                    size_hint_y=None,
-                    height=dp(150)
-                )
-            )
-
-    def show_add_popup(self, *args):
-        popup_content = BoxLayout(
-            orientation='vertical',
-            padding=dp(20),
-            spacing=dp(14)
-        )
-
-        with popup_content.canvas.before:
-            Color(*COLORS['bg_secondary'])
-            self.popup_bg = RoundedRectangle(
-                pos=popup_content.pos,
-                size=popup_content.size,
-                radius=[dp(20)]
-            )
-        popup_content.bind(
-            pos=lambda *a: setattr(self.popup_bg, 'pos', popup_content.pos),
-            size=lambda *a: setattr(self.popup_bg, 'size', popup_content.size)
-        )
-
-        # Title
-        popup_title = Label(
-            text="\U0001F4DD  Add New Password",
-            font_size=sp(20),
-            bold=True,
-            color=COLORS['text_primary'],
-            size_hint_y=None,
-            height=dp(36)
-        )
-
-        # Input fields
-        self.popup_app_input = StyledTextInput(hint_text="App / Website Name")
-        self.popup_app_input.size_hint_y = None
-        self.popup_app_input.height = dp(52)
-
-        self.popup_user_input = StyledTextInput(hint_text="Username / Email")
-        self.popup_user_input.size_hint_y = None
-        self.popup_user_input.height = dp(52)
-
-        self.popup_pass_input = StyledTextInput(hint_text="Password")
-        self.popup_pass_input.password = True
-        self.popup_pass_input.size_hint_y = None
-        self.popup_pass_input.height = dp(52)
-
-        # Generate password button
-        gen_btn = SecondaryButton(text="\U0001F3B2  Generate Strong Password")
-        gen_btn.bind(on_press=self.generate_password)
-
-        # Error label
-        self.popup_error = Label(
-            text="",
-            font_size=sp(12),
-            color=COLORS['danger'],
-            size_hint_y=None,
-            height=dp(20)
-        )
-
-        # Buttons
-        btn_row = BoxLayout(spacing=dp(12), size_hint_y=None, height=dp(52))
-
-        cancel_btn = SecondaryButton(text="Cancel")
-        save_btn = PrimaryButton(text="Save")
-
-        cancel_btn.bind(on_press=lambda x: self.popup.dismiss())
-        save_btn.bind(on_press=self.save_from_popup)
-
-        btn_row.add_widget(cancel_btn)
-        btn_row.add_widget(save_btn)
-
-        popup_content.add_widget(popup_title)
-        popup_content.add_widget(Widget(size_hint_y=None, height=dp(4)))
-        popup_content.add_widget(self.popup_app_input)
-        popup_content.add_widget(self.popup_user_input)
-        popup_content.add_widget(self.popup_pass_input)
-        popup_content.add_widget(gen_btn)
-        popup_content.add_widget(self.popup_error)
-        popup_content.add_widget(Widget(size_hint_y=0.1))
-        popup_content.add_widget(btn_row)
-
-        self.popup = Popup(
-            title="",
-            separator_height=0,
-            content=popup_content,
-            size_hint=(0.92, 0.72),
-            background_color=COLORS['overlay'],
-            background='',
-            auto_dismiss=True
-        )
-        self.popup.open()
-
-    def generate_password(self, *args):
-        chars = string.ascii_letters + string.digits + "!@#$%&*"
-        password = ''.join(random.choice(chars) for _ in range(16))
-        self.popup_pass_input.text = password
-        self.popup_pass_input.password = False
-
-    def save_from_popup(self, *args):
-        app = self.popup_app_input.text.strip()
-        user = self.popup_user_input.text.strip()
-        pwd = self.popup_pass_input.text.strip()
-
-        if not app:
-            self.popup_error.text = "App name is required"
-            return
-        if not user:
-            self.popup_error.text = "Username is required"
-            return
-        if not pwd:
-            self.popup_error.text = "Password is required"
-            return
-        if len(pwd) < 4:
-            self.popup_error.text = "Password too short (min 4 chars)"
+        if not keys:
+            self.list_box.add_widget(
+                Label(text='\U0001F4AD\n\nNo passwords found',
+                      font_size=sp(15), color=C['dark_grey'],
+                      halign='center', size_hint_y=None, height=dp(120)))
             return
 
-        timestamp = datetime.now().strftime("%d %b %Y, %I:%M %p")
-        self.store.put(app, username=user, password=pwd, timestamp=timestamp)
+        for key in sorted(keys):
+            d = self.store.get(key)
+            card = self._make_card(key, d.get('username', ''),
+                                   d.get('password', ''),
+                                   d.get('timestamp', ''))
+            self.list_box.add_widget(card)
 
-        self.popup.dismiss()
-        self.load_passwords()
-        self.show_toast("Password saved successfully!")
+    def _make_card(self, name, user, pwd, ts):
+        card = RBox(bg=C['card'], r=14, orientation='vertical',
+                    size_hint_y=None, height=dp(130),
+                    padding=[dp(16), dp(12)], spacing=dp(4))
 
-    def confirm_delete(self, key):
-        content = BoxLayout(
-            orientation='vertical',
-            padding=dp(20),
-            spacing=dp(16)
-        )
+        # Row 1 - Name + Delete
+        r1 = BoxLayout(size_hint_y=None, height=dp(30))
+        r1.add_widget(Label(text=f'\U0001F4F1  {name}', font_size=sp(17),
+                            bold=True, color=C['white'], halign='left',
+                            text_size=(dp(220), None)))
+        del_b = Button(text='\u2716', size_hint_x=None, width=dp(36),
+                       background_color=(0,0,0,0), background_normal='',
+                       font_size=sp(16), color=C['red'])
+        del_b.bind(on_press=lambda x, k=name: self._confirm_del(k))
+        r1.add_widget(del_b)
 
-        with content.canvas.before:
-            Color(*COLORS['bg_secondary'])
-            self.del_bg = RoundedRectangle(
-                pos=content.pos,
-                size=content.size,
-                radius=[dp(20)]
-            )
-        content.bind(
-            pos=lambda *a: setattr(self.del_bg, 'pos', content.pos),
-            size=lambda *a: setattr(self.del_bg, 'size', content.size)
-        )
+        # Row 2 - Username
+        r2 = Label(text=f'\U0001F464  {user}', font_size=sp(14),
+                   color=C['grey'], halign='left',
+                   text_size=(dp(300), None), size_hint_y=None, height=dp(22))
 
-        warn_icon = Label(
-            text="\u26A0",
-            font_size=sp(48),
-            size_hint_y=0.3
-        )
+        # Row 3 - Password
+        r3 = BoxLayout(size_hint_y=None, height=dp(28))
+        pwd_l = Label(text=f'\U0001F512  {"*" * min(len(pwd), 10)}',
+                      font_size=sp(14), color=C['grey'], halign='left',
+                      text_size=(dp(180), None))
+        pwd_data = {'show': False, 'pwd': pwd, 'label': pwd_l}
 
-        msg = Label(
-            text=f"Delete '{key}'?\n\nThis action cannot be undone.",
-            font_size=sp(15),
-            color=COLORS['text_secondary'],
-            halign='center',
-            size_hint_y=0.3
-        )
+        eye_b = Button(text='\U0001F441', size_hint_x=None, width=dp(36),
+                       background_color=(0,0,0,0), background_normal='',
+                       font_size=sp(15))
+        eye_b.bind(on_press=lambda x, d=pwd_data: self._toggle_pwd(d))
 
-        btn_row = BoxLayout(spacing=dp(12), size_hint_y=0.25)
+        copy_b = Button(text='Copy', size_hint_x=None, width=dp(60),
+                        background_color=(0,0,0,0), background_normal='',
+                        font_size=sp(13), color=C['accent'])
+        copy_b.bind(on_press=lambda x, p=pwd: self._copy(p))
 
-        cancel_btn = SecondaryButton(text="Cancel")
-        delete_btn = DangerButton(text="Delete")
+        r3.add_widget(pwd_l)
+        r3.add_widget(eye_b)
+        r3.add_widget(copy_b)
 
-        def do_delete(x):
-            self.store.delete(key)
-            self.load_passwords()
-            del_popup.dismiss()
-            self.show_toast(f"'{key}' deleted")
+        # Row 4 - Time
+        r4 = Label(text=f'  {ts}', font_size=sp(11), color=C['dark_grey'],
+                   halign='left', text_size=(dp(300), None),
+                   size_hint_y=None, height=dp(18))
 
-        cancel_btn.bind(on_press=lambda x: del_popup.dismiss())
-        delete_btn.bind(on_press=do_delete)
+        card.add_widget(r1)
+        card.add_widget(r2)
+        card.add_widget(r3)
+        card.add_widget(r4)
+        return card
 
-        btn_row.add_widget(cancel_btn)
-        btn_row.add_widget(delete_btn)
+    def _toggle_pwd(self, data):
+        data['show'] = not data['show']
+        if data['show']:
+            data['label'].text = f'\U0001F513  {data["pwd"]}'
+        else:
+            data['label'].text = f'\U0001F512  {"*" * min(len(data["pwd"]), 10)}'
 
-        content.add_widget(warn_icon)
-        content.add_widget(msg)
-        content.add_widget(btn_row)
-
-        del_popup = Popup(
-            title="",
-            separator_height=0,
-            content=content,
-            size_hint=(0.8, 0.4),
-            background_color=COLORS['overlay'],
-            background='',
-        )
-        del_popup.open()
-
-    def copy_to_clipboard(self, text):
+    def _copy(self, text):
         try:
             from kivy.core.clipboard import Clipboard
             Clipboard.copy(text)
-            self.show_toast("Password copied!")
+            self._toast('Copied!')
         except Exception:
-            self.show_toast("Copy not supported")
+            self._toast('Copy failed')
 
-    def show_toast(self, message):
-        toast_label = Label(
-            text=message,
-            font_size=sp(14),
-            color=COLORS['text_primary'],
-            size_hint=(0.7, None),
-            height=dp(44),
-            pos_hint={'center_x': 0.5, 'y': 0.05}
-        )
+    def _show_add(self, *a):
+        box = BoxLayout(orientation='vertical', padding=dp(16), spacing=dp(12))
 
-        toast_box = FloatLayout(size_hint=(1, 1))
-        bg_box = BoxLayout(
-            size_hint=(0.7, None),
-            height=dp(44),
-            pos_hint={'center_x': 0.5, 'y': 0.05}
-        )
-        with bg_box.canvas.before:
-            Color(*COLORS['success'][:3], 0.9)
-            self.toast_rect = RoundedRectangle(
-                pos=bg_box.pos,
-                size=bg_box.size,
-                radius=[dp(22)]
-            )
-        bg_box.bind(
-            pos=lambda *a: setattr(self.toast_rect, 'pos', bg_box.pos),
-            size=lambda *a: setattr(self.toast_rect, 'size', bg_box.size)
-        )
+        self.p_app = SInput(hint_text='App / Website Name')
+        self.p_app.size_hint_y = None
+        self.p_app.height = dp(50)
 
-        toast_box.add_widget(bg_box)
-        toast_box.add_widget(toast_label)
+        self.p_user = SInput(hint_text='Username / Email')
+        self.p_user.size_hint_y = None
+        self.p_user.height = dp(50)
 
-        self.add_widget(toast_box)
+        self.p_pwd = SInput(hint_text='Password')
+        self.p_pwd.password = True
+        self.p_pwd.size_hint_y = None
+        self.p_pwd.height = dp(50)
 
-        def remove_toast(dt):
-            self.remove_widget(toast_box)
+        gen_btn = OBtn(text='\U0001F3B2  Generate Password')
+        gen_btn.bind(on_press=self._gen_pwd)
 
-        Clock.schedule_once(remove_toast, 2)
+        self.p_err = Label(text='', font_size=sp(12), color=C['red'],
+                           size_hint_y=None, height=dp(18))
 
-    def show_settings_popup(self, *args):
-        content = BoxLayout(
-            orientation='vertical',
-            padding=dp(20),
-            spacing=dp(14)
-        )
+        btns = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(50))
+        c_btn = OBtn(text='Cancel')
+        s_btn = PBtn(text='Save')
+        c_btn.bind(on_press=lambda x: self.popup.dismiss())
+        s_btn.bind(on_press=self._save)
+        btns.add_widget(c_btn)
+        btns.add_widget(s_btn)
 
-        with content.canvas.before:
-            Color(*COLORS['bg_secondary'])
-            self.settings_bg = RoundedRectangle(
-                pos=content.pos,
-                size=content.size,
-                radius=[dp(20)]
-            )
-        content.bind(
-            pos=lambda *a: setattr(self.settings_bg, 'pos', content.pos),
-            size=lambda *a: setattr(self.settings_bg, 'size', content.size)
-        )
+        box.add_widget(Label(text='Add Password', font_size=sp(20),
+                             bold=True, color=C['white'],
+                             size_hint_y=None, height=dp(32)))
+        box.add_widget(self.p_app)
+        box.add_widget(self.p_user)
+        box.add_widget(self.p_pwd)
+        box.add_widget(gen_btn)
+        box.add_widget(self.p_err)
+        box.add_widget(Widget(size_hint_y=0.1))
+        box.add_widget(btns)
 
-        title = Label(
-            text="\u2699  Settings",
-            font_size=sp(22),
-            bold=True,
-            color=COLORS['text_primary'],
-            size_hint_y=None,
-            height=dp(36)
-        )
+        self.popup = Popup(title='', separator_height=0, content=box,
+                           size_hint=(0.9, 0.7),
+                           background_color=(0, 0, 0, 0.8), background='')
+        self.popup.open()
 
-        # Change PIN
-        change_pin_btn = SecondaryButton(text="\U0001F512  Change PIN")
-        change_pin_btn.bind(on_press=lambda x: self.change_pin(settings_popup))
+    def _gen_pwd(self, *a):
+        ch = string.ascii_letters + string.digits + '!@#$%&*'
+        self.p_pwd.text = ''.join(random.choice(ch) for _ in range(16))
+        self.p_pwd.password = False
 
-        # Export
-        export_btn = SecondaryButton(text="\U0001F4E4  Export Passwords")
-        export_btn.bind(on_press=lambda x: self.export_passwords(settings_popup))
+    def _save(self, *a):
+        app = self.p_app.text.strip()
+        user = self.p_user.text.strip()
+        pwd = self.p_pwd.text.strip()
 
-        # About
-        about_label = Label(
-            text="Secure Vault v1.0\nOffline Password Manager\nAll data stored locally",
-            font_size=sp(12),
-            color=COLORS['text_hint'],
-            halign='center',
-            size_hint_y=None,
-            height=dp(60)
-        )
+        if not app:
+            self.p_err.text = 'App name required'
+            return
+        if not user:
+            self.p_err.text = 'Username required'
+            return
+        if not pwd:
+            self.p_err.text = 'Password required'
+            return
 
-        # Close
-        close_btn = PrimaryButton(text="Close")
-        close_btn.bind(on_press=lambda x: settings_popup.dismiss())
+        ts = datetime.now().strftime('%d %b %Y, %I:%M %p')
+        self.store.put(app, username=user, password=pwd, timestamp=ts)
+        self.popup.dismiss()
+        self._load()
+        self._toast('Saved!')
 
-        # Lock
-        lock_btn = DangerButton(text="\U0001F512  Lock Vault")
-        lock_btn.bind(on_press=lambda x: self.lock_vault(settings_popup))
+    def _confirm_del(self, key):
+        box = BoxLayout(orientation='vertical', padding=dp(16), spacing=dp(12))
+        box.add_widget(Label(text='\u26A0', font_size=sp(44), size_hint_y=0.3))
+        box.add_widget(Label(text=f'Delete "{key}"?\n\nCannot be undone.',
+                             font_size=sp(15), color=C['grey'],
+                             halign='center', size_hint_y=0.3))
 
-        content.add_widget(title)
-        content.add_widget(Widget(size_hint_y=None, height=dp(8)))
-        content.add_widget(change_pin_btn)
-        content.add_widget(export_btn)
-        content.add_widget(lock_btn)
-        content.add_widget(Widget(size_hint_y=0.1))
-        content.add_widget(about_label)
-        content.add_widget(close_btn)
+        btns = BoxLayout(spacing=dp(10), size_hint_y=0.25)
+        c = OBtn(text='Cancel')
+        d = PBtn(text='Delete', bg=C['red'])
 
-        settings_popup = Popup(
-            title="",
-            separator_height=0,
-            content=content,
-            size_hint=(0.88, 0.65),
-            background_color=COLORS['overlay'],
-            background='',
-        )
-        settings_popup.open()
+        def do_del(x):
+            self.store.delete(key)
+            self._load()
+            dp2.dismiss()
+            self._toast(f'"{key}" deleted')
 
-    def change_pin(self, popup):
-        popup.dismiss()
+        c.bind(on_press=lambda x: dp2.dismiss())
+        d.bind(on_press=do_del)
+        btns.add_widget(c)
+        btns.add_widget(d)
+        box.add_widget(btns)
 
-        content = BoxLayout(
-            orientation='vertical',
-            padding=dp(20),
-            spacing=dp(14)
-        )
+        dp2 = Popup(title='', separator_height=0, content=box,
+                     size_hint=(0.8, 0.38),
+                     background_color=(0, 0, 0, 0.8), background='')
+        dp2.open()
 
-        with content.canvas.before:
-            Color(*COLORS['bg_secondary'])
-            self.cp_bg = RoundedRectangle(
-                pos=content.pos, size=content.size, radius=[dp(20)]
-            )
-        content.bind(
-            pos=lambda *a: setattr(self.cp_bg, 'pos', content.pos),
-            size=lambda *a: setattr(self.cp_bg, 'size', content.size)
-        )
-
-        title = Label(
-            text="Change PIN",
-            font_size=sp(20),
-            bold=True,
-            color=COLORS['text_primary'],
-            size_hint_y=None,
-            height=dp(36)
-        )
-
-        old_pin = StyledTextInput(hint_text="Current PIN")
-        old_pin.password = True
-        old_pin.size_hint_y = None
-        old_pin.height = dp(52)
-
-        new_pin = StyledTextInput(hint_text="New PIN (4 digits)")
-        new_pin.password = True
-        new_pin.size_hint_y = None
-        new_pin.height = dp(52)
-
-        error_label = Label(
-            text="", font_size=sp(12),
-            color=COLORS['danger'],
-            size_hint_y=None, height=dp(20)
-        )
-
-        btn_row = BoxLayout(spacing=dp(12), size_hint_y=None, height=dp(52))
-        cancel_btn = SecondaryButton(text="Cancel")
-        save_btn = PrimaryButton(text="Change")
-
-        def do_change(x):
-            old = old_pin.text.strip()
-            new = new_pin.text.strip()
-            stored = self.store.get("pin")["value"]
-
-            if hashlib.sha256(old.encode()).hexdigest() != stored:
-                error_label.text = "Current PIN is wrong"
-                return
-            if len(new) != 4 or not new.isdigit():
-                error_label.text = "New PIN must be 4 digits"
-                return
-
-            self.store.put("pin", value=hashlib.sha256(new.encode()).hexdigest())
-            pin_popup.dismiss()
-            self.show_toast("PIN changed!")
-
-        cancel_btn.bind(on_press=lambda x: pin_popup.dismiss())
-        save_btn.bind(on_press=do_change)
-        btn_row.add_widget(cancel_btn)
-        btn_row.add_widget(save_btn)
-
-        content.add_widget(title)
-        content.add_widget(old_pin)
-        content.add_widget(new_pin)
-        content.add_widget(error_label)
-        content.add_widget(Widget(size_hint_y=0.1))
-        content.add_widget(btn_row)
-
-        pin_popup = Popup(
-            title="", separator_height=0,
-            content=content,
-            size_hint=(0.88, 0.55),
-            background_color=COLORS['overlay'],
-            background=''
-        )
-        pin_popup.open()
-
-    def export_passwords(self, popup):
-        popup.dismiss()
-        try:
-            data = {}
-            for key in self.store.keys():
-                if key != "pin":
-                    data[key] = dict(self.store.get(key))
-
-            export_path = os.path.join(
-                os.path.expanduser("~"),
-                "vault_export.json"
-            )
-            with open(export_path, 'w') as f:
-                json.dump(data, f, indent=2)
-
-            self.show_toast(f"Exported to {export_path}")
-        except Exception as e:
-            self.show_toast(f"Export failed: {str(e)}")
-
-    def lock_vault(self, popup):
-        popup.dismiss()
+    def _lock(self, *a):
         self.manager.transition = SlideTransition(direction='right')
         self.manager.current = 'pin'
 
+    def _toast(self, msg):
+        t = Label(text=msg, font_size=sp(14), color=C['white'],
+                  size_hint=(0.6, None), height=dp(40),
+                  pos_hint={'center_x': 0.5, 'y': 0.05})
 
-# ─────────────────────────────────────────
-# MAIN APP
-# ─────────────────────────────────────────
+        bg = BoxLayout(size_hint=(0.6, None), height=dp(40),
+                       pos_hint={'center_x': 0.5, 'y': 0.05})
+        with bg.canvas.before:
+            Color(*C['green'][:3], 0.9)
+            r = RoundedRectangle(pos=bg.pos, size=bg.size, radius=[dp(20)])
+        bg.bind(pos=lambda *a: setattr(r, 'pos', bg.pos),
+                size=lambda *a: setattr(r, 'size', bg.size))
+
+        f = FloatLayout(size_hint=(1, 1))
+        f.add_widget(bg)
+        f.add_widget(t)
+        self.add_widget(f)
+        Clock.schedule_once(lambda dt: self.remove_widget(f), 2)
+
+
+# ═══════════════════════════════════════
+# APP
+# ═══════════════════════════════════════
 class SecureVault(App):
     def build(self):
-        self.title = "Secure Vault"
-        Window.clearcolor = COLORS['bg_primary']
+        self.title = 'Secure Vault'
+        Window.clearcolor = C['bg']
 
-        self.store = JsonStore("vault.json")
+        # Use app directory for storage
+        try:
+            from android.storage import app_storage_path
+            store_path = os.path.join(app_storage_path(), 'vault.json')
+        except Exception:
+            store_path = 'vault.json'
+
+        self.store = JsonStore(store_path)
 
         sm = ScreenManager()
         sm.add_widget(SplashScreen(name='splash'))
         sm.add_widget(PinScreen(store=self.store, name='pin'))
         sm.add_widget(MainScreen(store=self.store, name='main'))
-
         return sm
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     SecureVault().run()
