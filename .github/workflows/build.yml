@@ -11,44 +11,45 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # ── Step 1: Checkout ──
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Step 2: Python ──
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # ── Step 3: Java ──
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # ── Step 4: Fix JAVA_HOME ──
-      - name: Fix JAVA_HOME path
+      - name: Fix JAVA_HOME
         shell: bash
         run: |
           set -eux
           JAVA_DIR=$(dirname "$(dirname "$(readlink -f "$(which javac)")")")
           echo "JAVA_HOME=$JAVA_DIR" >> "$GITHUB_ENV"
           echo "$JAVA_DIR/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME = $JAVA_DIR"
           java -version
           javac -version
 
-      # ── Step 5: Clean ──
-      - name: Clean old build
+      - name: Clean old build files
         shell: bash
         run: |
           rm -rf ~/.buildozer
           rm -rf .buildozer
           rm -rf bin
+          rm -rf python-for-android
 
-      # ── Step 6: System deps ──
+      - name: Clone stable python-for-android
+        shell: bash
+        run: |
+          set -eux
+          git clone --depth 1 --branch 2024.01.21 https://github.com/kivy/python-for-android.git python-for-android
+          ls -la python-for-android
+
       - name: Install system dependencies
         shell: bash
         run: |
@@ -60,7 +61,6 @@ jobs:
             build-essential libsqlite3-dev ccache \
             libltdl-dev libbz2-dev liblzma-dev lld
 
-      # ── Step 7: Python packages ──
       - name: Install Python packages
         shell: bash
         run: |
@@ -69,8 +69,7 @@ jobs:
           python -m pip install Cython==0.29.37
           python -m pip install buildozer==1.5.0
 
-      # ── Step 8: Setup Android SDK ──
-      - name: Prepare Android SDK for Buildozer
+      - name: Prepare Android SDK
         shell: bash
         run: |
           set -euxo pipefail
@@ -79,8 +78,8 @@ jobs:
           SDKMGR=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | head -1)
           AVDMGR=$(find "$SDK/cmdline-tools" -name avdmanager -type f | head -1)
 
-          echo "SDK: $SDK"
-          echo "sdkmanager: $SDKMGR"
+          echo "Using SDK: $SDK"
+          echo "Using sdkmanager: $SDKMGR"
 
           sudo mkdir -p "$SDK/tools/bin"
           sudo ln -sf "$SDKMGR" "$SDK/tools/bin/sdkmanager"
@@ -97,12 +96,7 @@ jobs:
             "build-tools;33.0.2" \
             "ndk;25.2.9519653"
 
-          AIDL=$(find "$SDK" -name "aidl" -type f | head -1)
-          if [ -n "$AIDL" ]; then
-            echo "AIDL found: $AIDL"
-          else
-            echo "WARNING: aidl not found"
-          fi
+          find "$SDK" -name "aidl" -type f | head -5
 
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
@@ -113,27 +107,22 @@ jobs:
           echo "$SDK/build-tools/33.0.2" >> "$GITHUB_PATH"
           echo "$SDK/platform-tools" >> "$GITHUB_PATH"
 
-      # ── Step 9: Buildozer symlinks ──
       - name: Create Buildozer symlinks
         shell: bash
         run: |
           set -eux
           mkdir -p ~/.buildozer/android/platform
-
-          ln -sf "$ANDROID_HOME" \
-            ~/.buildozer/android/platform/android-sdk
-
-          ln -sf "$ANDROID_HOME/ndk/25.2.9519653" \
-            ~/.buildozer/android/platform/android-ndk-r25b
-
+          ln -sf "$ANDROID_HOME" ~/.buildozer/android/platform/android-sdk
+          ln -sf "$ANDROID_HOME/ndk/25.2.9519653" ~/.buildozer/android/platform/android-ndk-r25b
           ls -la ~/.buildozer/android/platform/
 
-      # ── Step 10: BUILD (log file only) ──
       - name: Build APK
+        id: build_apk
+        continue-on-error: true
         shell: bash
         run: |
-          buildozer -v android debug > build.log 2>&1 || true
-          echo "Build step finished with code: $?"
+          set -euxo pipefail
+          buildozer -v android debug 2>&1 | tee build.log
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROIDSDK: ${{ env.ANDROIDSDK }}
@@ -146,56 +135,30 @@ jobs:
           NDKAPI: "21"
           BUILDOZER_ALLOW_ORG_NAME_START: "1"
 
-      # ── Step 11: Show REAL errors ──
-      - name: Show real errors from build log
+      - name: Show important log lines
         if: always()
         shell: bash
         run: |
+          echo "========== POSSIBLE ERRORS =========="
+          grep -niE "error:| error |failed|exception|traceback|command failed|not found|No such file|undefined reference|ld: error|clang: error|ninja: build stopped|recipe|python3.14" build.log | tail -n 150 || true
           echo ""
-          echo "============================================"
-          echo "  ERROR LINES FROM BUILD LOG"
-          echo "============================================"
-          echo ""
-          grep -niE "error|Error|ERROR|failed|Failed|FAILED|exception|Exception|traceback|Traceback|command failed|not found|No such file|cannot find|ImportError|ModuleNotFoundError|FileNotFoundError|aidl|sdkmanager|gradle|Could not|Unable to" build.log | tail -n 80 || echo "No error lines found"
-          echo ""
-          echo "============================================"
-          echo "  LAST 200 LINES OF BUILD LOG"
-          echo "============================================"
-          echo ""
-          tail -n 200 build.log || echo "build.log not found"
+          echo "========== LAST 250 LINES =========="
+          tail -n 250 build.log || true
 
-      # ── Step 12: Check APK ──
-      - name: Verify APK exists
+      - name: Normalize APK location
         if: always()
         shell: bash
         run: |
-          echo ""
-          echo "============================================"
-          echo "  CHECKING FOR APK FILES"
-          echo "============================================"
-          echo ""
-          echo "-- bin/ folder --"
-          ls -lah bin/ 2>/dev/null || echo "bin/ directory NOT found"
-          echo ""
-          echo "-- APK search everywhere --"
-          find . -type f -name "*.apk" -exec ls -lh {} \; 2>/dev/null || echo "No .apk files found anywhere"
-          echo ""
-          APK=$(find . -type f -name "*.apk" | head -1)
+          mkdir -p bin
+          APK=$(find . -type f -name "*.apk" | head -1 || true)
           if [ -n "$APK" ]; then
-            SIZE=$(stat -c%s "$APK" 2>/dev/null || echo "0")
-            SIZE_MB=$((SIZE / 1048576))
-            echo "APK FOUND: $APK"
-            echo "SIZE: ${SIZE_MB} MB (${SIZE} bytes)"
-            if [ "$SIZE" -gt 3000000 ]; then
-              echo "STATUS: APK looks GOOD"
-            else
-              echo "STATUS: APK too small - build may be incomplete"
-            fi
+            cp -f "$APK" bin/
+            echo "APK copied to bin/"
+            ls -lh bin/*.apk
           else
-            echo "STATUS: NO APK FOUND - BUILD FAILED"
+            echo "No APK found anywhere"
           fi
 
-      # ── Step 13: Upload log ──
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -203,12 +166,31 @@ jobs:
           name: Build-Log
           path: build.log
 
-      # ── Step 14: Upload APK ──
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Secure-Vault-APK
-          path: |
-            bin/*.apk
+          path: bin/*.apk
           if-no-files-found: warn
+
+      - name: Fail if APK missing or too small
+        if: always()
+        shell: bash
+        run: |
+          APK=$(find bin -maxdepth 1 -type f -name "*.apk" | head -1 || true)
+          if [ -z "$APK" ]; then
+            echo "APK was not generated."
+            exit 1
+          fi
+
+          SIZE=$(stat -c%s "$APK")
+          echo "APK: $APK"
+          echo "Size: $SIZE bytes"
+
+          if [ "$SIZE" -lt 3000000 ]; then
+            echo "APK is too small. Build is incomplete."
+            exit 1
+          fi
+
+          echo "APK looks valid."
