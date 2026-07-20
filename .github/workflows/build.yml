@@ -11,94 +11,103 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
-      - name: Fix JAVA_HOME
+      # पुराने broken caches हटाओ
+      - name: Clean old Buildozer files
         run: |
-          JAVA_DIR=$(dirname $(dirname $(readlink -f $(which javac))))
-          echo "JAVA_HOME=$JAVA_DIR" >> $GITHUB_ENV
-          echo "Detected JAVA_HOME: $JAVA_DIR"
-          java -version
-          javac -version
+          rm -rf ~/.buildozer
+          rm -rf .buildozer
+          rm -rf bin
 
-      - name: Install Android SDK Components
-        run: |
-          export ANDROID_HOME=/usr/local/lib/android/sdk
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2" \
-            "ndk;25.2.9519653"
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
-
-      - name: Install System Dependencies
+      - name: Install system packages
         run: |
           sudo apt update
           sudo apt install -y \
             git zip unzip autoconf libtool pkg-config \
-            zlib1g-dev libncurses5-dev libncursesw5-dev cmake \
-            libffi-dev libssl-dev python3-dev build-essential \
-            libsqlite3-dev ccache libltdl-dev lld
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            cmake libffi-dev libssl-dev python3-dev \
+            build-essential libsqlite3-dev ccache \
+            libltdl-dev libbz2-dev liblzma-dev
 
-      - name: Install Python Dependencies
+      - name: Install Python packages
         run: |
-          pip install --upgrade pip setuptools wheel
-          pip install Cython==0.29.37
-          pip install buildozer==1.5.0
+          python -m pip install --upgrade pip
+          python -m pip install Cython==0.29.37 buildozer==1.5.0
 
-      - name: Setup Buildozer SDK Links
+      - name: Prepare Android SDK for Buildozer
         run: |
-          mkdir -p ~/.buildozer/android/platform/
-          ln -sf $ANDROID_HOME ~/.buildozer/android/platform/android-sdk
-          ln -sf $ANDROID_NDK_HOME ~/.buildozer/android/platform/android-ndk-r25b
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> $GITHUB_ENV
+          echo "$JAVA_HOME_17_X64/bin" >> $GITHUB_PATH
+
+          SDK_ROOT=/usr/local/lib/android/sdk
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager | head -1)
+          AVDMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name avdmanager | head -1)
+
+          echo "Using SDK_ROOT=$SDK_ROOT"
+          echo "Using SDKMANAGER=$SDKMANAGER"
+
+          # Buildozer पुराना tools/bin path ढूंढता है
+          sudo mkdir -p "$SDK_ROOT/tools/bin"
+          sudo ln -sf "$SDKMANAGER" "$SDK_ROOT/tools/bin/sdkmanager"
+
+          if [ -n "$AVDMANAGER" ]; then
+            sudo ln -sf "$AVDMANAGER" "$SDK_ROOT/tools/bin/avdmanager"
+          fi
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2" \
+            "ndk;25.2.9519653"
+
+          echo "$SDK_ROOT/build-tools/33.0.2" >> $GITHUB_PATH
+          echo "$SDK_ROOT/platform-tools" >> $GITHUB_PATH
+
+          echo "Checking aidl..."
+          find "$SDK_ROOT" -name aidl -type f
 
       - name: Build APK
         run: |
-          buildozer android debug 2>&1 | tee build.log
-          echo ""
-          echo "========================================="
-          echo "BUILD COMPLETE - Checking output..."
-          echo "========================================="
+          buildozer -v android debug 2>&1 | tee build.log
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          ANDROIDSDK: /usr/local/lib/android/sdk
+          ANDROIDNDK: /usr/local/lib/android/sdk/ndk/25.2.9519653
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          ANDROIDAPI: 33
+          ANDROIDMINAPI: 21
+          NDKAPI: 21
+          BUILDOZER_ALLOW_ORG_NAME_START: 1
 
-      - name: Verify APK
+      - name: Show generated files
         if: always()
         run: |
-          echo "=== Searching for APK files ==="
-          find . -name "*.apk" -type f -exec ls -lh {} \;
+          echo "=== BIN FOLDER ==="
+          ls -lah bin || true
           echo ""
-          echo "=== bin/ directory contents ==="
-          ls -lah bin/ 2>/dev/null || echo "bin/ not found"
+          echo "=== APK SEARCH ==="
+          find . -name "*.apk" -type f -exec ls -lh {} \; || true
           echo ""
-          echo "=== APK file size check ==="
-          APK_FILE=$(find . -name "*.apk" -type f | head -1)
-          if [ -n "$APK_FILE" ]; then
-            SIZE=$(stat -f%z "$APK_FILE" 2>/dev/null || stat -c%s "$APK_FILE" 2>/dev/null)
-            echo "APK: $APK_FILE ($SIZE bytes)"
-            if [ "$SIZE" -lt 1000000 ]; then
-              echo "WARNING: APK is too small! Build may have failed."
-            else
-              echo "APK size looks good!"
-            fi
-          else
-            echo "ERROR: No APK file found!"
-          fi
+          echo "=== LAST 60 LINES OF LOG ==="
+          tail -n 60 build.log || true
 
-      - name: Upload Build Log
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
