@@ -11,42 +11,40 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # ── Step 1: Code checkout ──
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Step 2: Python setup ──
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # ── Step 3: Java setup ──
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # ── Step 4: Fix JAVA_HOME ──
       - name: Fix JAVA_HOME path
+        shell: bash
         run: |
-          JAVA_DIR=$(dirname $(dirname $(readlink -f $(which javac))))
-          echo "JAVA_HOME=$JAVA_DIR" >> $GITHUB_ENV
-          echo "$JAVA_DIR/bin" >> $GITHUB_PATH
+          set -eux
+          JAVA_DIR=$(dirname "$(dirname "$(readlink -f "$(which javac)")")")
+          echo "JAVA_HOME=$JAVA_DIR" >> "$GITHUB_ENV"
+          echo "$JAVA_DIR/bin" >> "$GITHUB_PATH"
           echo "JAVA_HOME set to: $JAVA_DIR"
           java -version
           javac -version
 
-      # ── Step 5: Clean old cache ──
-      - name: Clean old buildozer cache
+      - name: Clean old build folders
+        shell: bash
         run: |
           rm -rf ~/.buildozer
           rm -rf .buildozer
           rm -rf bin
 
-      # ── Step 6: System dependencies ──
       - name: Install system dependencies
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -56,84 +54,69 @@ jobs:
             build-essential libsqlite3-dev ccache \
             libltdl-dev libbz2-dev liblzma-dev lld
 
-      # ── Step 7: Python packages ──
       - name: Install Python packages
+        shell: bash
         run: |
+          set -eux
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install Cython==0.29.37
           python -m pip install buildozer==1.5.0
 
-      # ── Step 8: Setup Android SDK for Buildozer ──
       - name: Prepare Android SDK for Buildozer
+        shell: bash
         run: |
+          set -euxo pipefail
+
           SDK=/usr/local/lib/android/sdk
-
-          echo "── Finding sdkmanager ──"
           SDKMGR=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | head -1)
-          echo "Found: $SDKMGR"
+          AVDMGR=$(find "$SDK/cmdline-tools" -name avdmanager -type f | head -1)
 
-          echo "── Creating legacy tools/bin symlink ──"
+          echo "Using SDK: $SDK"
+          echo "Using sdkmanager: $SDKMGR"
+
           sudo mkdir -p "$SDK/tools/bin"
           sudo ln -sf "$SDKMGR" "$SDK/tools/bin/sdkmanager"
 
-          AVDMGR=$(find "$SDK/cmdline-tools" -name avdmanager -type f | head -1)
           if [ -n "$AVDMGR" ]; then
             sudo ln -sf "$AVDMGR" "$SDK/tools/bin/avdmanager"
           fi
 
-          echo "── Accepting licenses ──"
-          yes | "$SDKMGR" --licenses 2>/dev/null || true
+          yes | "$SDKMGR" --licenses || true
 
-          echo "── Installing SDK components ──"
           "$SDKMGR" --sdk_root="$SDK" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2" \
             "ndk;25.2.9519653"
 
-          echo "── Verifying aidl ──"
           AIDL=$(find "$SDK" -name "aidl" -type f | head -1)
-          if [ -n "$AIDL" ]; then
-            echo "aidl found: $AIDL"
-          else
-            echo "ERROR: aidl not found!"
-            exit 1
-          fi
+          echo "AIDL FOUND: $AIDL"
 
-          echo "── Setting environment ──"
-          echo "ANDROID_HOME=$SDK" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$SDK" >> $GITHUB_ENV
-          echo "ANDROIDSDK=$SDK" >> $GITHUB_ENV
-          echo "ANDROIDNDK=$SDK/ndk/25.2.9519653" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$SDK/ndk/25.2.9519653" >> $GITHUB_ENV
-          echo "$SDK/build-tools/33.0.2" >> $GITHUB_PATH
-          echo "$SDK/platform-tools" >> $GITHUB_PATH
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROIDSDK=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROIDNDK=$SDK/ndk/25.2.9519653" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/25.2.9519653" >> "$GITHUB_ENV"
 
-      # ── Step 9: Create Buildozer SDK symlinks ──
+          echo "$SDK/build-tools/33.0.2" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+
       - name: Create Buildozer symlinks
+        shell: bash
         run: |
+          set -eux
           mkdir -p ~/.buildozer/android/platform
 
-          ln -sf "$ANDROID_HOME" \
-            ~/.buildozer/android/platform/android-sdk
+          ln -sf "$ANDROID_HOME" ~/.buildozer/android/platform/android-sdk
+          ln -sf "$ANDROID_HOME/ndk/25.2.9519653" ~/.buildozer/android/platform/android-ndk-r25b
 
-          ln -sf "$ANDROID_HOME/ndk/25.2.9519653" \
-            ~/.buildozer/android/platform/android-ndk-r25b
-
-          echo "── Symlinks created ──"
           ls -la ~/.buildozer/android/platform/
 
-      # ── Step 10: Build APK ──
       - name: Build APK
+        shell: bash
         run: |
-          echo "══════════════════════════════════════"
-          echo "  STARTING BUILD"
-          echo "══════════════════════════════════════"
+          set -euxo pipefail
           buildozer -v android debug 2>&1 | tee build.log
-          echo ""
-          echo "══════════════════════════════════════"
-          echo "  BUILD FINISHED"
-          echo "══════════════════════════════════════"
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROIDSDK: ${{ env.ANDROIDSDK }}
@@ -146,40 +129,19 @@ jobs:
           NDKAPI: "21"
           BUILDOZER_ALLOW_ORG_NAME_START: "1"
 
-      # ── Step 11: Verify output ──
-      - name: Verify APK output
+      - name: Show build outputs
         if: always()
+        shell: bash
         run: |
-          echo "══════════════════════════════════════"
-          echo "  CHECKING OUTPUT"
-          echo "══════════════════════════════════════"
+          echo "========== BIN FOLDER =========="
+          ls -lah bin || true
           echo ""
-          echo "── bin/ directory ──"
-          ls -lah bin/ 2>/dev/null || echo "bin/ not found"
+          echo "========== APK SEARCH =========="
+          find . -type f \( -name "*.apk" -o -name "*.aab" \) -exec ls -lh {} \; || true
           echo ""
-          echo "── All APK files ──"
-          find . -name "*.apk" -type f -exec ls -lh {} \;
-          echo ""
-          echo "── APK size check ──"
-          APK=$(find . -name "*.apk" -type f | head -1)
-          if [ -n "$APK" ]; then
-            SIZE=$(stat -c%s "$APK" 2>/dev/null || echo "0")
-            SIZE_MB=$((SIZE / 1048576))
-            echo "APK: $APK"
-            echo "Size: ${SIZE_MB} MB ($SIZE bytes)"
-            if [ "$SIZE" -gt 3000000 ]; then
-              echo "APK looks GOOD!"
-            else
-              echo "WARNING: APK too small, build may have issues"
-            fi
-          else
-            echo "NO APK FOUND - Build failed"
-            echo ""
-            echo "── Last 80 lines of build log ──"
-            tail -80 build.log
-          fi
+          echo "========== LAST 120 LINES OF LOG =========="
+          tail -n 120 build.log || true
 
-      # ── Step 12: Upload build log ──
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -187,11 +149,12 @@ jobs:
           name: Build-Log
           path: build.log
 
-      # ── Step 13: Upload APK ──
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Secure-Vault-APK
-          path: bin/*.apk
-          if-no-files-found: warn
+          path: |
+            bin/*.apk
+            **/*.apk
+          if-no-files-found: error
