@@ -6,12 +6,12 @@ package.domain = com.offlineapps
 
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,json,txt
-source.exclude_dirs = .git,.github,.buildozer,bin,__pycache__,python-for-android
+source.exclude_dirs = .git,.github,.buildozer,bin,__pycache__
 
 version = 1.0
 
-# IMPORTANT: Python 3.14 मत उठने दो
-requirements = python3==3.11.7,kivy==2.3.0
+# Fixed: Remove explicit python/kivy version pinning to avoid recipe crashes
+requirements = python3,kivy
 
 orientation = portrait
 fullscreen = 0
@@ -25,10 +25,7 @@ android.archs = arm64-v8a
 android.permissions = INTERNET,VIBRATE
 
 android.accept_sdk_license = True
-android.skip_update = True
-
-# IMPORTANT: local stable p4a use करो
-p4a.source_dir = ./python-for-android
+android.skip_update = False
 
 log_level = 2
 
